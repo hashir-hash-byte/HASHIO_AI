@@ -14,6 +14,10 @@ except Exception:
     st.error("API Key missing! Please configure GEMINI_API_KEY in the Streamlit Secrets panel.")
     st.stop()
 
+# Initialize Session State memory fields so data stays on screen
+if "summary" not in st.session_state:
+    st.session_state.summary = ""
+
 # 3. Create two tabs: One for text input, one for file uploads
 tab1, tab2 = st.tabs(["📝 Paste Text", "📁 Upload File"])
 
@@ -33,61 +37,59 @@ with tab2:
             st.code(file_contents[:500] + "...", language="text")
         notes_to_analyze = file_contents
 
-# 4. Process the text when the button is clicked
+# 4. Trigger the AI analysis
 if st.button("Generate AI Summary"):
     if not notes_to_analyze.strip():
         st.warning("Please paste some notes or upload a file first!")
     else:
         with st.spinner("AI is analyzing and summarizing your notes..."):
             try:
-                # Initialize the recommended active model
                 model = genai.GenerativeModel('gemini-3.5-flash')
-                
-                # Craft a precise engineering prompt for the model
                 prompt = (
                     f"You are an expert engineering professor. Summarize the following "
                     f"academic notes or document. Break down the core concepts into clear, concise bullet points "
-                    f"that are easy to study for exams. Avoid complex markdown symbols like asterisks inside the text so it reads out loud smoothly:\n\n{notes_to_analyze}"
+                    f"that are easy to study for exams. Avoid complex markdown symbols like asterisks inside the text:\n\n{notes_to_analyze}"
                 )
-                
-                # Generate content
                 response = model.generate_content(prompt)
-                summary_text = response.text
                 
-                # Display the real summary
-                st.subheader("📝 AI-Generated Summary:")
-                st.success(summary_text)
-                
-                # --- PHASE 3: VOICE OUTPUT COMPONENT ---
-                st.subheader("🔊 Audio Reader")
-                
-                # Clean up text specifically for the audio player javascript string
-                clean_text = summary_text.replace("'", "\\'").replace("\n", " ")
-                
-                # HTML and JavaScript to tap into the browser's native text-to-speech engine
-                tts_html = f"""
-                <div style="display: flex; gap: 10px; font-family: sans-serif;">
-                    <button onclick="speak()" style="background-color: #2e7d32; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">▶ Play Audio</button>
-                    <button onclick="stop()" style="background-color: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">⏹ Stop</button>
-                </div>
-
-                <script>
-                    var msg = new SpeechSynthesisUtterance();
-                    msg.text = "{clean_text}";
-                    msg.rate = 1.0; // Speed of speaking
-                    
-                    function speak() {{
-                        window.speechSynthesis.cancel(); // Stop anything playing before starting
-                        window.speechSynthesis.speak(msg);
-                    }}
-                    
-                    function stop() {{
-                        window.speechSynthesis.cancel();
-                    }}
-                </script>
-                """
-                # Render the speaker component inside Streamlit
-                components.html(tts_html, height=60)
+                # Save the summary into our page memory!
+                st.session_state.summary = response.text
                 
             except Exception as e:
                 st.error(f"An error occurred: {e}")
+
+# 5. Display the summary and voice buttons permanently if they exist in memory
+if st.session_state.summary:
+    st.write("---")
+    st.subheader("📝 AI-Generated Summary:")
+    st.success(st.session_state.summary)
+    
+    st.subheader("🔊 Audio Reader")
+    
+    # Clean up text specifically for the JavaScript execution string
+    clean_text = st.session_state.summary.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
+    
+    # HTML and JavaScript to tap into the browser's native text-to-speech engine
+    tts_html = f"""
+    <div style="display: flex; gap: 10px; font-family: sans-serif;">
+        <button onclick="speak()" style="background-color: #2e7d32; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">▶ Play Audio</button>
+        <button onclick="stop()" style="background-color: #d32f2f; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">⏹ Stop</button>
+    </div>
+
+    <script>
+        var msg = new SpeechSynthesisUtterance();
+        msg.text = "{clean_text}";
+        msg.rate = 1.0; 
+        
+        function speak() {{
+            window.speechSynthesis.cancel(); 
+            window.speechSynthesis.speak(msg);
+        }}
+        
+        function stop() {{
+            window.speechSynthesis.cancel();
+        }}
+    </script>
+    """
+    # Render the speaker component safely outside the temporary button conditional
+    components.html(tts_html, height=70)
