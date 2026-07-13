@@ -1,5 +1,5 @@
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 
 # 1. Setup the Title and Description
 st.title("📚 VTU Notes Summarizer (v2.0)")
@@ -23,8 +23,11 @@ if st.button("Generate AI Summary"):
     else:
         with st.spinner("AI is analyzing and summarizing your notes..."):
             try:
-                # Initialize the Google GenAI client
-                client = genai.Client(api_key=api_key)
+                # Configure the legacy library with your key
+                genai.configure(api_key=api_key)
+                
+                # Initialize the recommended active model
+                model = genai.GenerativeModel('gemini-3.5-flash')
                 
                 # Craft a precise engineering prompt for the model
                 prompt = (
@@ -33,11 +36,8 @@ if st.button("Generate AI Summary"):
                     f"that are easy to study for exams:\n\n{user_notes}"
                 )
                 
-                # Call the fast, efficient flash model
-                response = client.models.generate_content(
-                    model='gemini-3.5-flash',
-                    contents=prompt,
-                )
+                # Generate content
+                response = model.generate_content(prompt)
                 
                 # Display the real summary
                 st.subheader("📝 AI-Generated Summary:")
