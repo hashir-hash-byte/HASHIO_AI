@@ -41,7 +41,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Password hashing utility for security
 def make_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
@@ -54,7 +53,7 @@ def create_user(username, password):
         conn.commit()
         success = True
     except sqlite3.IntegrityError:
-        success = False  # Username already exists
+        success = False
     conn.close()
     return success
 
@@ -84,18 +83,18 @@ def get_user_history(username):
     conn.close()
     return rows
 
-# Initialize database tables on startup
 init_db()
 
 # ==========================================
-# 1. SIDEBAR AUTHENTICATION INTERFACE
+# 1. SIDEBAR AUTHENTICATION
 # ==========================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = ""
-if "summary" not in st.session_state:
-    st.session_state.summary = ""
+# Chat message logs stored globally for the session
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 with st.sidebar:
     st.header("🔑 HASHIO_AI Portal")
@@ -110,6 +109,8 @@ with st.sidebar:
                 if login_user(auth_user, auth_pass):
                     st.session_state.logged_in = True
                     st.session_state.username = auth_user
+                    # Seed chat greeting
+                    st.session_state.messages = [{"role": "assistant", "content": f"Hi {auth_user}! I'm ready. Paste your engineering notes, drop a file, or ask me a direct question!"}]
                     st.rerun()
                 else:
                     st.error("Invalid username or password.")
@@ -123,22 +124,34 @@ with st.sidebar:
                     st.error("Username already taken.")
     else:
         st.write(f"Logged in as: **{st.session_state.username}**")
+        
+        # Display Personal User History from DB inside the Sidebar to save room
+        st.write("---")
+        st.subheader("📜 Your Recent Logs")
+        records = get_user_history(st.session_state.username)
+        if records:
+            for row in records:
+                timestamp, input_type, stored_summary = row
+                with st.expander(f"🕒 {timestamp} | {input_type}"):
+                    st.caption(stored_summary[:100] + "...")
+        else:
+            st.caption("No history saved yet.")
+
+        st.write("---")
         if st.button("Log Out"):
             st.session_state.logged_in = False
             st.session_state.username = ""
-            st.session_state.summary = ""
+            st.session_state.messages = []
             st.rerun()
 
 # ==========================================
-# 2. APP CODE (PROTECTED BY LOGIN STATE)
+# 2. CHAT MODE INTERFACE (PROTECTED)
 # ==========================================
-st.title("📚 HASHIO_AI: VTU Notes & File Summarizer")
+st.title("💬 HASHIO_AI: Interactive Companion")
 
 if not st.session_state.logged_in:
-    st.info("Please Log In or Sign Up using the sidebar menu to start using the app.")
+    st.info("Please Log In or Sign Up using the sidebar menu to open the chat window.")
 else:
-    st.write(f"Welcome back, **{st.session_state.username}**! Paste notes or upload a file below.")
-
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
@@ -146,72 +159,66 @@ else:
         st.error("API Key missing from Streamlit secrets.")
         st.stop()
 
-    # Form processing tabs
-    tab1, tab2 = st.tabs(["📝 Paste Text", "📁 Upload File"])
-    notes_to_analyze = ""
-    source_type = "Text Input"
+    # Optional File Uploader attachment widget right at the top
+    uploaded_file = st.file_uploader("📎 Optional: Attach a text file (.txt) to analyze in the conversation", type=["txt"])
+    file_payload = ""
+    if uploaded_file is not None:
+        file_payload = uploaded_file.read().decode("utf-8")
+        st.success(f"Attached file: {uploaded_file.name}")
 
-    with tab1:
-        user_notes = st.text_area("Paste your VTU Notes here:", height=200, key="text_input")
-        if user_notes:
-            notes_to_analyze = user_notes
-            source_type = "Text Input"
+    st.write("---")
 
-    with tab2:
-        uploaded_file = st.file_uploader("Upload a text file (.txt):", type=["txt"])
-        if uploaded_file is not None:
-            file_contents = uploaded_file.read().decode("utf-8")
-            st.success(f"Successfully loaded: {uploaded_file.name}")
-            notes_to_analyze = file_contents
-            source_type = f"File: {uploaded_file.name}"
+    # Render rolling history of conversational logs on screen
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
-    if st.button("Generate AI Summary"):
-        if not notes_to_analyze.strip():
-            st.warning("Please provide notes or a file first.")
-        else:
-            with st.spinner("AI is studying your notes..."):
+    # Look for active inputs at the bottom row (Like ChatGPT)
+    if user_prompt := st.chat_input("Ask HASHIO_AI anything..."):
+        
+        # Display human bubble
+        with st.chat_message("user"):
+            st.write(user_prompt)
+        st.session_state.messages.append({"role": "user", "content": user_prompt})
+
+        # Process context package (Merge text inputs with attached file data if present)
+        final_prompt = user_prompt
+        source_label = "Direct Query"
+        if file_payload:
+            final_prompt = f"Context file contents:\n{file_payload}\n\nUser Question:\n{user_prompt}"
+            source_label = f"File Context: {uploaded_file.name}"
+
+        # Generate response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
                 try:
                     model = genai.GenerativeModel('gemini-3.5-flash')
-                    prompt = (
-                        f"You are an expert engineering professor. Summarize the following "
-                        f"academic notes. Break down core concepts into bullet points for exam preparation:\n\n{notes_to_analyze}"
-                    )
-                    response = model.generate_content(prompt)
-                    st.session_state.summary = response.text
                     
-                    # Save history locked to this specific user profile
-                    save_to_history(st.session_state.username, source_type, response.text)
+                    # Feed the full conversational chain to simulate actual memory
+                    system_context = "You are an expert engineering mentor. Answer clearly and split dense technical explanations into easy-to-read bullet points.\n\n"
+                    history_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[:-1]])
+                    
+                    full_payload = f"{system_context}{history_context}\nuser: {final_prompt}"
+                    
+                    response = model.generate_content(full_payload)
+                    ai_response = response.text
+                    
+                    st.write(ai_response)
+                    
+                    # Text to Speech Generator
+                    st.write("🔊 **Listen to reply:**")
+                    speech_text = ai_response.replace("*", "").replace("-", " ")
+                    tts = gTTS(text=speech_text, lang='en', tld='com')
+                    fp = io.BytesIO()
+                    tts.write_to_fp(fp)
+                    fp.seek(0)
+                    st.audio(fp, format="audio/mp3")
+
+                    # Log the turn inside the SQLite Database
+                    save_to_history(st.session_state.username, source_label, ai_response[:150] + "...")
+                    
+                    # Update rolling memory array
+                    st.session_state.messages.append({"role": "assistant", "content": ai_response})
                     
                 except Exception as e:
-                    st.error(f"Error processing content: {e}")
-
-    # Render Summary & Voice
-    if st.session_state.summary:
-        st.write("---")
-        st.subheader("📝 AI-Generated Summary:")
-        st.success(st.session_state.summary)
-        
-        st.subheader("🔊 Audio Reader")
-        with st.spinner("Generating audio track..."):
-            try:
-                speech_text = st.session_state.summary.replace("*", "").replace("-", " ")
-                tts = gTTS(text=speech_text, lang='en', tld='com')
-                fp = io.BytesIO()
-                tts.write_to_fp(fp)
-                fp.seek(0)
-                st.audio(fp, format="audio/mp3")
-            except Exception as audio_err:
-                st.error(f"Audio Generation Error: {audio_err}")
-
-    # Render Personal User History from DB
-    st.write("---")
-    st.subheader(f"📜 {st.session_state.username}'s History Log")
-    records = get_user_history(st.session_state.username)
-
-    if records:
-        for row in records:
-            timestamp, input_type, stored_summary = row
-            with st.expander(f"🕒 {timestamp} | {input_type}"):
-                st.info(stored_summary)
-    else:
-        st.write("No saved summaries in your account history yet.")
+                    st.error(f"Error communicating with AI: {e}")
