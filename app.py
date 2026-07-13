@@ -2,6 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 import sqlite3
 from datetime import datetime
+from gtts import gTTS
+import io
 
 # ==========================================
 # 0. DATABASE SETUP (SQLite)
@@ -90,7 +92,7 @@ if st.button("Generate AI Summary"):
                 prompt = (
                     f"You are an expert engineering professor. Summarize the following "
                     f"academic notes or document. Break down the core concepts into clear, concise bullet points "
-                    f"that are easy to study for exams. Avoid complex markdown symbols like asterisks inside the text:\n\n{notes_to_analyze}"
+                    f"that are easy to study for exams. Keep formatting clean:\n\n{notes_to_analyze}"
                 )
                 response = model.generate_content(prompt)
                 st.session_state.summary = response.text
@@ -111,42 +113,22 @@ if st.session_state.summary:
     
     st.subheader("🔊 Audio Reader")
     
-    clean_text = (
-        st.session_state.summary
-        .replace("\\", " ")
-        .replace("'", " ")
-        .replace('"', ' ')
-        .replace("\n", " ")
-        .replace("\r", " ")
-        .strip()
-    )
-    
-    tts_html = f"""
-    <div style="display: flex; gap: 10px; font-family: sans-serif;">
-        <button onclick="speak()" style="background-color: #2e7d32; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0px 2px 4px rgba(0,0,0,0.2);">▶ Play Audio</button>
-        <button onclick="stop()" style="background-color: #d32f2f; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0px 2px 4px rgba(0,0,0,0.2);">⏹ Stop</button>
-    </div>
-    
-    <script>
-        var msg = null;
-        function speak() {{
-            try {{
-                window.speechSynthesis.cancel(); 
-                msg = new SpeechSynthesisUtterance();
-                msg.text = "{clean_text}";
-                msg.rate = 1.0; 
-                msg.lang = 'en-US';
-                window.speechSynthesis.speak(msg);
-            }} catch(err) {{
-                alert("Speech error: " + err.message);
-            }}
-        }}
-        function stop() {{
-            window.speechSynthesis.cancel();
-        }}
-    </script>
-    """
-    st.html(tts_html)
+    with st.spinner("Generating audio track..."):
+        try:
+            # Clean text slightly for a natural read-out
+            speech_text = st.session_state.summary.replace("*", "").replace("-", " ")
+            
+            # Use gTTS to build the speech track in memory
+            tts = gTTS(text=speech_text, lang='en', tld='com')
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            fp.seek(0)
+            
+            # Render Streamlit's beautiful native HTML5 audio bar widget
+            st.audio(fp, format="audio/mp3")
+            
+        except Exception as audio_err:
+            st.error(f"Could not generate audio: {audio_err}")
 
 # ==========================================
 # 5. RENDERING THE DATABASE HISTORY LOG
