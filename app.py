@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+import streamlit.components.v1 as components
 
 # 1. Setup the Title and Description
 st.title("📚 HASHIO_AI: VTU Notes & File Summarizer")
@@ -26,10 +27,8 @@ with tab1:
 with tab2:
     uploaded_file = st.file_uploader("Upload a text file (.txt):", type=["txt"])
     if uploaded_file is not None:
-        # Read the file contents as text strings
         file_contents = uploaded_file.read().decode("utf-8")
         st.success(f"Successfully loaded: {uploaded_file.name}")
-        # Show a quick preview of what's inside the file
         with st.expander("Preview uploaded file content"):
             st.code(file_contents[:500] + "...", language="text")
         notes_to_analyze = file_contents
@@ -48,15 +47,47 @@ if st.button("Generate AI Summary"):
                 prompt = (
                     f"You are an expert engineering professor. Summarize the following "
                     f"academic notes or document. Break down the core concepts into clear, concise bullet points "
-                    f"that are easy to study for exams:\n\n{notes_to_analyze}"
+                    f"that are easy to study for exams. Avoid complex markdown symbols like asterisks inside the text so it reads out loud smoothly:\n\n{notes_to_analyze}"
                 )
                 
                 # Generate content
                 response = model.generate_content(prompt)
+                summary_text = response.text
                 
                 # Display the real summary
                 st.subheader("📝 AI-Generated Summary:")
-                st.success(response.text)
+                st.success(summary_text)
+                
+                # --- PHASE 3: VOICE OUTPUT COMPONENT ---
+                st.subheader("🔊 Audio Reader")
+                
+                # Clean up text specifically for the audio player javascript string
+                clean_text = summary_text.replace("'", "\\'").replace("\n", " ")
+                
+                # HTML and JavaScript to tap into the browser's native text-to-speech engine
+                tts_html = f"""
+                <div style="display: flex; gap: 10px; font-family: sans-serif;">
+                    <button onclick="speak()" style="background-color: #2e7d32; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">▶ Play Audio</button>
+                    <button onclick="stop()" style="background-color: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">⏹ Stop</button>
+                </div>
+
+                <script>
+                    var msg = new SpeechSynthesisUtterance();
+                    msg.text = "{clean_text}";
+                    msg.rate = 1.0; // Speed of speaking
+                    
+                    function speak() {{
+                        window.speechSynthesis.cancel(); // Stop anything playing before starting
+                        window.speechSynthesis.speak(msg);
+                    }}
+                    
+                    function stop() {{
+                        window.speechSynthesis.cancel();
+                    }}
+                </script>
+                """
+                # Render the speaker component inside Streamlit
+                components.html(tts_html, height=60)
                 
             except Exception as e:
                 st.error(f"An error occurred: {e}")
