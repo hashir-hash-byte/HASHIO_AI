@@ -2,30 +2,27 @@ import streamlit as st
 import google.generativeai as genai
 
 # 1. Setup the Title and Description
-st.title("📚 VTU Notes Summarizer (v2.0)")
+st.title("📚 HASHIO_AI: VTU Notes Summarizer")
 st.write("Welcome, Mohammed! Paste your engineering notes below to get an intelligent AI summary.")
 
-# 2. Add an input box for your API Key in the sidebar so it's clean
-with st.sidebar:
-    st.header("🔑 Configuration")
-    api_key = st.text_input("Enter your Gemini API Key:", type="password")
-    st.info("Get a free key from Google AI Studio")
+# 2. Automatically load the API Key from Streamlit's secure vault
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
+except Exception:
+    st.error("API Key missing! Please configure GEMINI_API_KEY in the Streamlit Secrets panel.")
+    st.stop()
 
 # 3. Text area for your VTU Notes
 user_notes = st.text_area("Paste your VTU Notes here:", height=250)
 
 # 4. Process the text when the button is clicked
 if st.button("Generate AI Summary"):
-    if not api_key:
-        st.error("Please enter your Gemini API Key in the sidebar first!")
-    elif user_notes.strip() == "":
+    if user_notes.strip() == "":
         st.warning("Please paste some notes to summarize!")
     else:
         with st.spinner("AI is analyzing and summarizing your notes..."):
             try:
-                # Configure the legacy library with your key
-                genai.configure(api_key=api_key)
-                
                 # Initialize the recommended active model
                 model = genai.GenerativeModel('gemini-3.5-flash')
                 
