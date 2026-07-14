@@ -6,9 +6,34 @@ from datetime import datetime
 from gtts import gTTS
 import io
 
-# ==========================================
-# 0. DATABASE & SECURITY SETUP (SQLite)
-# ==========================================
+# =====================================================================
+# 0. PAGE AND BRANDING CONFIGURATION (Must be at the top)
+# =====================================================================
+# This customizes the browser tab title and uses your local logo as the favicon
+st.set_page_config(
+    page_title="HASHIO_AI Engine", 
+    page_icon="assets/logo.png",  # Points to your newly uploaded logo
+    layout="centered"
+)
+
+# Places your custom brand logo inside the upper left corner of the app frame
+st.logo("assets/logo.png", size="large") 
+
+# Clean custom CSS injector to remove default Streamlit menu/footer clutter
+st.markdown(
+    """
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+    </style>
+    """, 
+    unsafe_allow_html=True
+)
+
+# =====================================================================
+# 1. DATABASE & SECURITY SETUP (SQLite)
+# =====================================================================
 def init_db():
     conn = sqlite3.connect("hashio_data.db")
     c = conn.cursor()
@@ -85,9 +110,9 @@ def get_user_history(username):
 # Run database setup
 init_db()
 
-# ==========================================
-# 1. SIDEBAR AUTHENTICATION INTERFACE
-# ==========================================
+# =====================================================================
+# 2. SIDEBAR AUTHENTICATION INTERFACE
+# =====================================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
@@ -141,10 +166,10 @@ with st.sidebar:
             st.session_state.messages = []
             st.rerun()
 
-# ==========================================
-# 2. INTERACTIVE CHAT SCREEN
-# ==========================================
-st.title("💬 HASHIO_AI: Interactive Companion")
+# =====================================================================
+# 3. INTERACTIVE CHAT SCREEN
+# =====================================================================
+st.title("🚀 HASHIO_AI Engine Core")
 
 if not st.session_state.logged_in:
     st.info("Welcome! Please Log In or Sign Up using the sidebar dashboard to open the chat framework.")
@@ -188,7 +213,7 @@ else:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    # Switch to the new 3.5 model identifier
+                    # Target generative engine interface
                     model = genai.GenerativeModel('gemini-3.5-flash')
                     
                     system_context = "You are an expert engineering mentor. Answer clearly and split dense technical explanations into easy-to-read bullet points.\n\n"
