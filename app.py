@@ -15,6 +15,12 @@ import io
 # =====================================================================
 st.set_page_config(
     page_title="HASHIO_AI Engine", 
+    page_icon="🤖", 
+    layout="centered"
+)
+
+st.set_page_config(
+    page_title="HASHIO_AI Engine", 
     page_icon="assets/logo.png",
     layout="centered"
 )
