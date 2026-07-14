@@ -188,15 +188,15 @@ else:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    # Using the latest fast Gemini model
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    # Switch to the new 3.5 model identifier
+                    model = genai.GenerativeModel('gemini-3.5-flash')
                     
                     system_context = "You are an expert engineering mentor. Answer clearly and split dense technical explanations into easy-to-read bullet points.\n\n"
                     history_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[:-1]])
                     full_payload = f"{system_context}{history_context}\nuser: {final_prompt}"
                     
-                    response = model.generate_content(full_payload)
-                    ai_response = response.text
+                    frame_res = model.generate_content(full_payload)
+                    ai_response = frame_res.text
                     
                     st.markdown(ai_response)
                     
