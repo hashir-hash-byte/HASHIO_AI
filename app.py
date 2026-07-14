@@ -13,11 +13,7 @@ import io
 # =====================================================================
 # 0. PAGE AND BRANDING CONFIGURATION (Must be at the top)
 # =====================================================================
-st.set_page_config(
-    page_title="HASHIO_AI Engine", 
-    page_icon="🤖", 
-    layout="centered"
-)
+
 
 st.set_page_config(
     page_title="HASHIO_AI Engine", 
