@@ -20,17 +20,18 @@ st.set_page_config(
 st.logo("assets/logo.png", size="large") 
 
 # Clean custom CSS injector to remove default Streamlit menu/footer clutter
+# Clean custom CSS injector to remove default Streamlit menu/footer clutter
+# This preserves the sidebar toggle button while hiding the default decoration bar
 st.markdown(
     """
     <style>
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
+        div[data-testid="stDecoration"] {visibility: hidden;}
     </style>
     """, 
     unsafe_allow_html=True
 )
-
 # =====================================================================
 # 1. DATABASE & SECURITY SETUP (SQLite)
 # =====================================================================
