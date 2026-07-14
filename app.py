@@ -10,14 +10,37 @@ import io
 # 0. PAGE AND BRANDING CONFIGURATION (Must be at the top)
 # =====================================================================
 # This customizes the browser tab title and uses your local logo as the favicon
+# =====================================================================
+# 0. PAGE AND BRANDING CONFIGURATION (Must be at the top)
+# =====================================================================
 st.set_page_config(
     page_title="HASHIO_AI Engine", 
-    page_icon="assets/logo.png",  # Points to your newly uploaded logo
+    page_icon="assets/logo.png",
     layout="centered"
 )
 
-# Places your custom brand logo inside the upper left corner of the app frame
-st.logo("assets/logo.png", size="large") 
+# --- ADD THIS NEW BLOCK BELOW TO FIX THE HOME SCREEN ICON ---
+# This forces iOS Safari to read your custom logo asset for the home screen bookmark
+import base64
+try:
+    with open("assets/logo.png", "rb") as image_file:
+        encoded_logo = base64.b64encode(image_file.read()).decode()
+    
+    st.markdown(
+        f"""
+        <head>
+            <link rel="apple-touch-icon" href="data:image/png;base64,{encoded_logo}">
+            <link rel="apple-touch-icon-precomposed" href="data:image/png;base64,{encoded_logo}">
+            <meta name="apple-mobile-web-app-capable" content="yes">
+        </head>
+        """,
+        unsafe_allow_html=True
+    )
+except FileNotFoundError:
+    pass
+# ------------------------------------------------------------
+
+st.logo("assets/logo.png", size="large")
 
 # Clean custom CSS injector to remove default Streamlit menu/footer clutter
 # Clean custom CSS injector to remove default Streamlit menu/footer clutter
