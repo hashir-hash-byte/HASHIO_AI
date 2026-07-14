@@ -1,95 +1,219 @@
 import streamlit as st
 import google.generativeai as genai
-import cohere
+import sqlite3
+import hashlib
+from datetime import datetime
 from gtts import gTTS
 import io
-from datetime import datetime
 
-# 1. Setup Streamlit Page Configurations
-st.set_page_config(page_title="HASHIO_AI Engine", page_icon="🤖", layout="centered")
-st.title("🤖 HASHIO_AI Platform")
+# ==========================================
+# 0. DATABASE & SECURITY SETUP (SQLite)
+# ==========================================
+def init_db():
+    conn = sqlite3.connect("hashio_data.db")
+    c = conn.cursor()
+    # 1. Create Users Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT
+        )
+    ''')
+    # 2. Create History Table linked to username
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            timestamp TEXT,
+            input_type TEXT,
+            summary TEXT
+        )
+    ''')
+    
+    # 3. SCHEMA MIGRATION: Make sure username column exists
+    try:
+        c.execute("ALTER TABLE history ADD COLUMN username TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+        
+    conn.commit()
+    conn.close()
 
-# Configure the backup Gemini engine using credentials from settings
-if "GEMINI_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+def make_hash(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
 
-# Initialize rolling conversation visual memory array if missing
+def create_user(username, password):
+    conn = sqlite3.connect("hashio_data.db")
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", 
+                  (username, make_hash(password)))
+        conn.commit()
+        success = True
+    except sqlite3.IntegrityError:
+        success = False
+    conn.close()
+    return success
+
+def login_user(username, password):
+    conn = sqlite3.connect("hashio_data.db")
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ? AND password_hash = ?", 
+              (username, make_hash(password)))
+    data = c.fetchall()
+    conn.close()
+    return len(data) > 0
+
+def save_to_history(username, input_type, summary_text):
+    conn = sqlite3.connect("hashio_data.db")
+    c = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT INTO history (username, timestamp, input_type, summary) VALUES (?, ?, ?, ?)", 
+              (username, now, input_type, summary_text))
+    conn.commit()
+    conn.close()
+
+def get_user_history(username):
+    conn = sqlite3.connect("hashio_data.db")
+    c = conn.cursor()
+    c.execute("SELECT timestamp, input_type, summary FROM history WHERE username = ? ORDER BY id DESC LIMIT 5", (username,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+# Run database setup
+init_db()
+
+# ==========================================
+# 1. SIDEBAR AUTHENTICATION INTERFACE
+# ==========================================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "username" not in st.session_state:
-    st.session_state.username = "Developer"
 
-# 2. Render Historical Chat Elements From Current Session State
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+with st.sidebar:
+    st.header("🔑 HASHIO_AI Portal")
+    
+    if not st.session_state.logged_in:
+        auth_mode = st.radio("Choose Action:", ["Login", "Sign Up"])
+        auth_user = st.text_input("Username:").strip()
+        auth_pass = st.text_input("Password:", type="password")
+        
+        if auth_mode == "Login":
+            if st.button("Sign In"):
+                if login_user(auth_user, auth_pass):
+                    st.session_state.logged_in = True
+                    st.session_state.username = auth_user
+                    st.session_state.messages = [{"role": "assistant", "content": f"Hi {auth_user}! HASHIO_AI is unlocked. Ask an engineering question or attach a file context below!"}]
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+        else:
+            if st.button("Register Account"):
+                if auth_user == "" or auth_pass == "":
+                    st.warning("Please fill out both fields.")
+                elif create_user(auth_user, auth_pass):
+                    st.success("Account created! You can now log in.")
+                else:
+                    st.error("Username already taken.")
+    else:
+        st.write(f"Logged in as: **{st.session_state.username}**")
+        
+        st.write("---")
+        st.subheader("📜 Your Recent Logs")
+        records = get_user_history(st.session_state.username)
+        if records:
+            for row in records:
+                timestamp, input_type, stored_summary = row
+                with st.expander(f"🕒 {timestamp} | {input_type}"):
+                    st.caption(stored_summary[:100] + "...")
+        else:
+            st.caption("No history saved yet.")
 
-# 3. Handle Live Incoming User Prompt Inputs
-if final_prompt := st.chat_input("Ask HASHIO_AI anything..."):
-    
-    # Render user message container visually on screen
-    with st.chat_message("user"):
-        st.markdown(final_prompt)
-    
-    # Commit user prompt to persistent visual memory loop
-    st.session_state.messages.append({"role": "user", "content": final_prompt})
-    
-    # Process Assistant Response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            ai_response = None
-            
-            # --- ENGINE A: TRY COHERE flagship MODEL ---
-            try:
-                cohere_key = st.secrets.get("COHERE_API_KEY", None)
-                if cohere_key:
-                    co_client = cohere.ClientV2(api_key=cohere_key)
-                    
-                    system_context = "You are an expert engineering mentor. Answer clearly and split dense technical explanations into easy-to-read bullet points."
-                    
-                    # Package chat history for Cohere's structure payload
-                    messages_payload = [{"role": "system", "content": system_context}]
-                    for m in st.session_state.messages[:-1]:
-                        messages_payload.append({"role": m["role"], "content": m["content"]})
-                    messages_payload.append({"role": "user", "content": final_prompt})
-                    
-                    response = co_client.chat(
-                        model="command-r-plus",
-                        messages=messages_payload
-                    )
-                    ai_response = response.message.content
-                    source_label = "Cohere (Command-R+)"
-            except Exception as co_err:
-                st.warning("Cohere engine rate limit hit. Shifting to backup framework...")
-            
-            # --- ENGINE B: BACKUP FALLBACK TO GOOGLE GEMINI ---
-            if not ai_response:
+        st.write("---")
+        if st.button("Log Out"):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.session_state.messages = []
+            st.rerun()
+
+# ==========================================
+# 2. INTERACTIVE CHAT SCREEN
+# ==========================================
+st.title("💬 HASHIO_AI: Interactive Companion")
+
+if not st.session_state.logged_in:
+    st.info("Welcome! Please Log In or Sign Up using the sidebar dashboard to open the chat framework.")
+else:
+    # Validate API key setup before proceeding
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+    except Exception:
+        st.error("Google API Key missing from Streamlit secrets config panel.")
+        st.stop()
+
+    # Document upload panel
+    uploaded_file = st.file_uploader("📎 Optional: Attach a text file (.txt) for context", type=["txt"])
+    file_payload = ""
+    if uploaded_file is not None:
+        file_payload = uploaded_file.read().decode("utf-8")
+        st.success(f"Attached context: {uploaded_file.name}")
+
+    st.write("---")
+
+    # Display running chat log
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Wait for conversational user input
+    if user_prompt := st.chat_input("Ask HASHIO_AI anything..."):
+        
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+        st.session_state.messages.append({"role": "user", "content": user_prompt})
+
+        # Inject document data if user has a file uploaded
+        final_prompt = user_prompt
+        source_label = "Direct Chat"
+        if file_payload:
+            final_prompt = f"Context document text:\n{file_payload}\n\nUser Question:\n{user_prompt}"
+            source_label = f"Context File: {uploaded_file.name}"
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Using the latest fast Gemini model
+                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    
                     system_context = "You are an expert engineering mentor. Answer clearly and split dense technical explanations into easy-to-read bullet points.\n\n"
                     history_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[:-1]])
                     full_payload = f"{system_context}{history_context}\nuser: {final_prompt}"
                     
                     response = model.generate_content(full_payload)
                     ai_response = response.text
-                    source_label = "Google Gemini"
+                    
+                    st.markdown(ai_response)
+                    
+                    # Audio Generator Button
+                    button_key = f"audio_{datetime.now().strftime('%H%M%S')}"
+                    if st.button("🔊 Generate Audio Track", key=button_key):
+                        with st.spinner("Converting text to speech..."):
+                            speech_text = ai_response.replace("*", "").replace("-", " ")
+                            tts = gTTS(text=speech_text, lang='en', tld='com')
+                            fp = io.BytesIO()
+                            tts.write_to_fp(fp)
+                            fp.seek(0)
+                            st.audio(fp, format="audio/mp3")
+
+                    # Log response into SQLite database history
+                    save_to_history(st.session_state.username, source_label, ai_response[:150] + "...")
+                    st.session_state.messages.append({"role": "assistant", "content": ai_response})
+                    
                 except Exception as e:
-                    st.error(f"Critical System Failure: Both AI engines are down. Details: {e}")
-            
-            # --- RENDER OUTPUT AND GENERATE COMPONENT UTILITIES ---
-            if ai_response:
-                st.markdown(ai_response)
-                
-                # Append finalized assistant text data block to rolling memory state
-                st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                
-                # On-demand Audio Player Component Setup
-                button_key = f"audio_{datetime.now().strftime('%H%M%S')}"
-                if st.button("🔊 Generate Audio Track", key=button_key):
-                    with st.spinner("Converting text to speech..."):
-                        speech_text = ai_response.replace("*", "").replace("-", " ")
-                        tts = gTTS(text=speech_text, lang='en', tld='com')
-                        fp = io.BytesIO()
-                        tts.write_to_fp(fp)
-                        fp.seek(0)
-                        st.audio(fp, format="audio/mp3")
+                    st.error(f"Error communicating with AI: {e}")
